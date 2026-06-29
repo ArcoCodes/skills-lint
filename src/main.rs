@@ -22,9 +22,6 @@ struct Args {
     #[arg(long)]
     json: bool,
 
-    #[arg(short, long)]
-    quiet: bool,
-
     #[arg(long)]
     list_rules: bool,
 
@@ -32,19 +29,7 @@ struct Args {
     ignore: Vec<String>,
 
     #[arg(long, value_delimiter = ',')]
-    only: Vec<String>,
-
-    #[arg(long, value_delimiter = ',')]
-    ignore_error: Vec<String>,
-
-    #[arg(long, value_delimiter = ',')]
-    only_error: Vec<String>,
-
-    #[arg(long, value_delimiter = ',')]
-    ignore_warning: Vec<String>,
-
-    #[arg(long, value_delimiter = ',')]
-    only_warning: Vec<String>,
+    select: Vec<String>,
 }
 
 fn main() -> ExitCode {
@@ -73,11 +58,11 @@ fn main() -> ExitCode {
     if args.json {
         println!("{}", serde_json::to_string_pretty(&result).unwrap());
     } else {
-        print_human(&result.skills, args.quiet);
-        println!(
-            "{} error(s), {} warning(s)",
-            result.error_count, result.warning_count
-        );
+        let printed = print_human(&result.skills);
+        if printed {
+            println!();
+        }
+        println!("{} error(s)", result.error_count);
     }
 
     if result.error_count > 0 {
@@ -87,16 +72,12 @@ fn main() -> ExitCode {
     }
 }
 
-fn print_human(skills: &[SkillResult], quiet: bool) {
+fn print_human(skills: &[SkillResult]) -> bool {
     let color = Color::detect();
     let mut printed = false;
 
     for skill in skills {
-        for diagnostic in skill
-            .diagnostics
-            .iter()
-            .filter(|diagnostic| !quiet || diagnostic.severity == Severity::Error)
-        {
+        for diagnostic in &skill.diagnostics {
             if printed {
                 println!();
             }
@@ -104,13 +85,12 @@ fn print_human(skills: &[SkillResult], quiet: bool) {
             printed = true;
         }
     }
+
+    printed
 }
 
 fn print_diagnostic(skill: &SkillResult, diagnostic: &Diagnostic, color: Color) {
-    let severity = match diagnostic.severity {
-        Severity::Error => color.red("error"),
-        Severity::Warning => color.yellow("warning"),
-    };
+    let severity = color.red("error");
     let rule_id = color.cyan(diagnostic.rule_id);
     let location = skill.skill_file.as_ref().unwrap_or(&skill.path);
 
@@ -119,17 +99,7 @@ fn print_diagnostic(skill: &SkillResult, diagnostic: &Diagnostic, color: Color) 
 }
 
 fn print_rules() {
-    println!("Errors:");
     for rule in RULES.iter().filter(|rule| rule.severity == Severity::Error) {
-        println!("  {}: {}", rule.id, rule.summary);
-    }
-
-    println!();
-    println!("Warnings:");
-    for rule in RULES
-        .iter()
-        .filter(|rule| rule.severity == Severity::Warning)
-    {
         println!("  {}: {}", rule.id, rule.summary);
     }
 }
@@ -165,11 +135,7 @@ fn config_path(args: &Args) -> Option<PathBuf> {
 fn cli_options(args: &Args) -> LintOptions {
     LintOptions {
         ignore: args.ignore.iter().cloned().collect(),
-        only: args.only.iter().cloned().collect(),
-        ignore_errors: args.ignore_error.iter().cloned().collect(),
-        only_errors: args.only_error.iter().cloned().collect(),
-        ignore_warnings: args.ignore_warning.iter().cloned().collect(),
-        only_warnings: args.only_warning.iter().cloned().collect(),
+        select: args.select.iter().cloned().collect(),
     }
 }
 
@@ -190,10 +156,6 @@ impl Color {
 
     fn red(self, value: &str) -> String {
         self.paint("31;1", value)
-    }
-
-    fn yellow(self, value: &str) -> String {
-        self.paint("33;1", value)
     }
 
     fn cyan(self, value: &str) -> String {

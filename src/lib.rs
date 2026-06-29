@@ -10,57 +10,33 @@ use walkdir::{DirEntry, WalkDir};
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 pub struct LintConfig {
     pub ignore: Vec<String>,
-    pub only: Vec<String>,
-    pub ignore_errors: Vec<String>,
-    pub only_errors: Vec<String>,
-    pub ignore_warnings: Vec<String>,
-    pub only_warnings: Vec<String>,
+    pub select: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LintOptions {
     pub ignore: BTreeSet<String>,
-    pub only: BTreeSet<String>,
-    pub ignore_errors: BTreeSet<String>,
-    pub only_errors: BTreeSet<String>,
-    pub ignore_warnings: BTreeSet<String>,
-    pub only_warnings: BTreeSet<String>,
+    pub select: BTreeSet<String>,
 }
 
 impl LintOptions {
     pub fn from_config(config: LintConfig) -> Self {
         Self {
             ignore: config.ignore.into_iter().collect(),
-            only: config.only.into_iter().collect(),
-            ignore_errors: config.ignore_errors.into_iter().collect(),
-            only_errors: config.only_errors.into_iter().collect(),
-            ignore_warnings: config.ignore_warnings.into_iter().collect(),
-            only_warnings: config.only_warnings.into_iter().collect(),
+            select: config.select.into_iter().collect(),
         }
     }
 
     pub fn merge(&mut self, other: Self) {
         self.ignore.extend(other.ignore);
-        self.only.extend(other.only);
-        self.ignore_errors.extend(other.ignore_errors);
-        self.only_errors.extend(other.only_errors);
-        self.ignore_warnings.extend(other.ignore_warnings);
-        self.only_warnings.extend(other.only_warnings);
+        self.select.extend(other.select);
     }
 
     pub fn validate(&self) -> Result<(), Vec<String>> {
         let valid = valid_rule_ids();
         let mut unknown = BTreeSet::new();
 
-        for rule_id in self
-            .ignore
-            .iter()
-            .chain(&self.only)
-            .chain(&self.ignore_errors)
-            .chain(&self.only_errors)
-            .chain(&self.ignore_warnings)
-            .chain(&self.only_warnings)
-        {
+        for rule_id in self.ignore.iter().chain(&self.select) {
             if !valid.contains(rule_id.as_str()) {
                 unknown.insert(rule_id.clone());
             }
@@ -75,20 +51,11 @@ impl LintOptions {
 
     fn includes(&self, diagnostic: &Diagnostic) -> bool {
         let rule_id = diagnostic.rule_id;
-        let severity_only = match diagnostic.severity {
-            Severity::Error => &self.only_errors,
-            Severity::Warning => &self.only_warnings,
-        };
-        let severity_ignore = match diagnostic.severity {
-            Severity::Error => &self.ignore_errors,
-            Severity::Warning => &self.ignore_warnings,
-        };
 
-        let has_only = !self.only.is_empty() || !severity_only.is_empty();
-        let selected = self.only.contains(rule_id) || severity_only.contains(rule_id);
-        let ignored = self.ignore.contains(rule_id) || severity_ignore.contains(rule_id);
+        let selected = self.select.is_empty() || self.select.contains(rule_id);
+        let ignored = self.ignore.contains(rule_id);
 
-        (!has_only || selected) && !ignored
+        selected && !ignored
     }
 }
 
@@ -152,27 +119,27 @@ pub const RULES: &[Rule] = &[
     },
     Rule {
         id: "invalid-metadata",
-        severity: Severity::Warning,
+        severity: Severity::Error,
         summary: "`metadata` should be a mapping of string keys to string values",
     },
     Rule {
         id: "body-line-count",
-        severity: Severity::Warning,
+        severity: Severity::Error,
         summary: "SKILL.md body should stay under 500 lines",
     },
     Rule {
         id: "body-token-estimate",
-        severity: Severity::Warning,
+        severity: Severity::Error,
         summary: "SKILL.md body should stay under about 5000 tokens",
     },
     Rule {
         id: "reference-depth",
-        severity: Severity::Warning,
+        severity: Severity::Error,
         summary: "Relative file references should be at most one directory level deep",
     },
     Rule {
         id: "missing-reference",
-        severity: Severity::Warning,
+        severity: Severity::Error,
         summary: "Relative file references in the body should exist on disk",
     },
 ];
@@ -181,7 +148,6 @@ pub const RULES: &[Rule] = &[
 pub struct LintResult {
     pub root: PathBuf,
     pub error_count: usize,
-    pub warning_count: usize,
     pub skills: Vec<SkillResult>,
 }
 
@@ -203,7 +169,6 @@ pub struct Diagnostic {
 #[serde(rename_all = "lowercase")]
 pub enum Severity {
     Error,
-    Warning,
 }
 
 pub fn lint_skills(root: impl AsRef<Path>) -> LintResult {
@@ -224,16 +189,9 @@ pub fn lint_skills_with_options(root: impl AsRef<Path>, options: &LintOptions) -
         .flat_map(|skill| &skill.diagnostics)
         .filter(|diagnostic| diagnostic.severity == Severity::Error)
         .count();
-    let warning_count = skills
-        .iter()
-        .flat_map(|skill| &skill.diagnostics)
-        .filter(|diagnostic| diagnostic.severity == Severity::Warning)
-        .count();
-
     LintResult {
         root,
         error_count,
-        warning_count,
         skills,
     }
 }
@@ -509,7 +467,7 @@ fn validate_metadata(frontmatter: &Mapping, diagnostics: &mut Vec<Diagnostic>) {
     };
 
     let Value::Mapping(metadata) = metadata else {
-        diagnostics.push(warning(
+        diagnostics.push(error(
             "invalid-metadata",
             "`metadata` should be a mapping of string keys to string values",
         ));
@@ -518,7 +476,7 @@ fn validate_metadata(frontmatter: &Mapping, diagnostics: &mut Vec<Diagnostic>) {
 
     for (key, value) in metadata {
         if key.as_str().is_none() || value.as_str().is_none() {
-            diagnostics.push(warning(
+            diagnostics.push(error(
                 "invalid-metadata",
                 "`metadata` should be a mapping of string keys to string values",
             ));
@@ -530,7 +488,7 @@ fn validate_metadata(frontmatter: &Mapping, diagnostics: &mut Vec<Diagnostic>) {
 fn validate_body(path: &Path, body: &str, diagnostics: &mut Vec<Diagnostic>) {
     let line_count = body.lines().count();
     if line_count > 500 {
-        diagnostics.push(warning(
+        diagnostics.push(error(
             "body-line-count",
             format!("SKILL.md body should stay under 500 lines, found {line_count}"),
         ));
@@ -538,7 +496,7 @@ fn validate_body(path: &Path, body: &str, diagnostics: &mut Vec<Diagnostic>) {
 
     let token_estimate = body.split_whitespace().count();
     if token_estimate > 5000 {
-        diagnostics.push(warning(
+        diagnostics.push(error(
             "body-token-estimate",
             format!(
                 "SKILL.md body should stay under about 5000 tokens, estimated {token_estimate}"
@@ -609,7 +567,7 @@ fn validate_reference(path: &Path, reference: &str, diagnostics: &mut Vec<Diagno
         .count();
 
     if depth > 2 {
-        diagnostics.push(warning(
+        diagnostics.push(error(
             "reference-depth",
             format!(
                 "Relative file reference `{reference}` should be at most one directory level deep"
@@ -618,7 +576,7 @@ fn validate_reference(path: &Path, reference: &str, diagnostics: &mut Vec<Diagno
     }
 
     if !path.join(reference).exists() {
-        diagnostics.push(warning(
+        diagnostics.push(error(
             "missing-reference",
             format!("Relative file reference `{reference}` does not exist"),
         ));
@@ -645,14 +603,6 @@ fn error(code: &'static str, message: impl Into<String>) -> Diagnostic {
     }
 }
 
-fn warning(code: &'static str, message: impl Into<String>) -> Diagnostic {
-    Diagnostic {
-        severity: Severity::Warning,
-        rule_id: code,
-        message: message.into(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -673,7 +623,6 @@ mod tests {
         let result = lint_skills(temp.path.join("skills"));
 
         assert_eq!(result.error_count, 0);
-        assert_eq!(result.warning_count, 0);
     }
 
     #[test]
@@ -710,7 +659,7 @@ mod tests {
     }
 
     #[test]
-    fn catches_reference_warnings() {
+    fn catches_reference_errors() {
         let temp = TestDir::new();
         let skill = temp.path.join("reference-test");
         fs::create_dir_all(&skill).unwrap();
@@ -728,7 +677,7 @@ mod tests {
     }
 
     #[test]
-    fn filters_with_general_ignore_and_only_rules() {
+    fn filters_with_ignore_and_select_rules() {
         let temp = TestDir::new();
         let skill = temp.path.join("filtered");
         fs::create_dir_all(&skill).unwrap();
@@ -739,7 +688,7 @@ mod tests {
         .unwrap();
 
         let mut options = LintOptions::default();
-        options.only.insert("invalid-name".to_string());
+        options.select.insert("invalid-name".to_string());
         options.ignore.insert("invalid-name".to_string());
 
         let result = lint_skill_dir_with_options(&skill, &options);
@@ -748,7 +697,7 @@ mod tests {
     }
 
     #[test]
-    fn filters_with_severity_specific_rules() {
+    fn filters_with_select_rules() {
         let temp = TestDir::new();
         let skill = temp.path.join("reference-test");
         fs::create_dir_all(&skill).unwrap();
@@ -759,8 +708,8 @@ mod tests {
         .unwrap();
 
         let mut options = LintOptions::default();
-        options.only_errors.insert("invalid-name".to_string());
-        options.only_warnings.insert("reference-depth".to_string());
+        options.select.insert("invalid-name".to_string());
+        options.select.insert("reference-depth".to_string());
 
         let result = lint_skill_dir_with_options(&skill, &options);
         let codes = codes(&result);

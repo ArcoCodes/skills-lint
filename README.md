@@ -7,8 +7,8 @@
 ```sh
 cargo run --bin slint -- ./skills
 cargo run --bin slint -- --json ./skills
-cargo run --bin slint -- --only missing-name,invalid-name ./skills
-cargo run --bin slint -- --ignore-warning body-line-count ./skills
+cargo run --bin slint -- --select missing-name,invalid-name ./skills
+cargo run --bin slint -- --ignore body-line-count ./skills
 ```
 
 Options:
@@ -17,14 +17,9 @@ Options:
 | --- | --- |
 | `--config <PATH>` | Read configuration from a TOML file |
 | `--json` | Print machine-readable results |
-| `--quiet`, `-q` | Suppress warnings in human output |
-| `--list-rules` | Print all rule IDs grouped by severity |
-| `--ignore <ID>` | Ignore a rule ID for any severity |
-| `--only <ID>` | Only run matching rule IDs for any severity |
-| `--ignore-error <ID>` | Ignore an error rule ID |
-| `--only-error <ID>` | Only run matching error rule IDs |
-| `--ignore-warning <ID>` | Ignore a warning rule ID |
-| `--only-warning <ID>` | Only run matching warning rule IDs |
+| `--list-rules` | Print all rule IDs |
+| `--select <ID>` | Only run matching rule IDs |
+| `--ignore <ID>` | Ignore matching rule IDs |
 
 Rule filters accept repeated flags or comma-separated values.
 
@@ -33,21 +28,13 @@ Rule filters accept repeated flags or comma-separated values.
 `slint` automatically reads `slint.toml` or `.slint.toml` from the current directory. Use `--config <PATH>` to choose a specific file.
 
 ```toml
-ignore = ["body-token-estimate"]
-only = []
-
-ignore-errors = []
-only-errors = ["missing-name", "invalid-name"]
-
-ignore-warnings = ["body-line-count"]
-only-warnings = []
+select = ["missing-name", "invalid-name"]
+ignore = ["body-line-count"]
 ```
 
 Command-line filters are merged with configuration file filters. Unknown rule IDs are reported before linting starts.
 
 ## Checks
-
-Errors:
 
 | Rule ID | Description |
 | --- | --- |
@@ -61,11 +48,6 @@ Errors:
 | `missing-description` | `description` is required |
 | `invalid-description` | `description` must be a string and 1-1024 characters |
 | `invalid-compatibility` | `compatibility`, when present, must be a string and 1-500 characters |
-
-Warnings:
-
-| Rule ID | Description |
-| --- | --- |
 | `invalid-metadata` | `metadata` should be a mapping of string keys to string values |
 | `body-line-count` | `SKILL.md` body should stay under 500 lines |
 | `body-token-estimate` | `SKILL.md` body should stay under about 5000 whitespace-delimited tokens |
