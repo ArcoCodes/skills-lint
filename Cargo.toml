@@ -1,0 +1,16 @@
+[package]
+name = "skills-lint"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "slint"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.6.1", features = ["derive"] }
+regex = "1.12.4"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+serde_yaml = "0.9.34"
+walkdir = "2.5.0"
