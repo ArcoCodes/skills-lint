@@ -2,37 +2,19 @@
 
 `slint` is a Rust CLI for linting Agent Skills in monorepos. It recursively scans for `skills` directories and `SKILL.md` files, validates each skill directory, and exits nonzero when errors are found.
 
-## Usage
+## Install
+
+Linux and macOS:
 
 ```sh
-cargo run --bin slint -- ./skills
-cargo run --bin slint -- --json ./skills
-cargo run --bin slint -- --select missing-name,invalid-name ./skills
-cargo run --bin slint -- --ignore body-line-count ./skills
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/ArcoCodes/skills-lint/releases/latest/download/skills-lint-installer.sh | sh
 ```
 
-Options:
+Windows PowerShell:
 
-| Flag | Description |
-| --- | --- |
-| `--config <PATH>` | Read configuration from a TOML file |
-| `--json` | Print machine-readable results |
-| `--list-rules` | Print all rule IDs |
-| `--select <ID>` | Only run matching rule IDs |
-| `--ignore <ID>` | Ignore matching rule IDs |
-
-Rule filters accept repeated flags or comma-separated values.
-
-## Configuration
-
-`slint` automatically reads `slint.toml` or `.slint.toml` from the current directory. Use `--config <PATH>` to choose a specific file.
-
-```toml
-select = ["missing-name", "invalid-name"]
-ignore = ["body-line-count"]
+```powershell
+powershell -c "irm https://github.com/ArcoCodes/skills-lint/releases/latest/download/skills-lint-installer.ps1 | iex"
 ```
-
-Command-line filters are merged with configuration file filters. Unknown rule IDs are reported before linting starts.
 
 ## CI
 
@@ -50,63 +32,29 @@ jobs:
       - uses: actions/checkout@v7.0.0
       - uses: ArcoCodes/skills-lint@v0.1.0
         with:
-          path: .
+          path: .                                      # Directory to lint (default: .)
+          config:                                      # Path to a slint config file
+          select:                                      # Comma-separated rule IDs to run
+          ignore: body-line-count,body-token-estimate  # Comma-separated rule IDs to skip
+          version: latest                              # Release tag to install, or "latest"
 ```
 
-With filters:
+## Lint Rules
 
-```yaml
-- uses: ArcoCodes/skills-lint@v0.1.0
-  with:
-    path: ./skills
-    ignore: body-line-count,body-token-estimate
-```
-
-Pin a specific released binary:
-
-```yaml
-- uses: ArcoCodes/skills-lint@v0.1.0
-  with:
-    version: v0.1.0
-```
-
-## Install
-
-Linux and macOS:
-
-```sh
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/ArcoCodes/skills-lint/releases/latest/download/skills-lint-installer.sh | sh
-```
-
-Windows PowerShell:
-
-```powershell
-powershell -c "irm https://github.com/ArcoCodes/skills-lint/releases/latest/download/skills-lint-installer.ps1 | iex"
-```
-
-Release artifacts are built by `dist` when a version tag is pushed:
-
-```sh
-git tag v0.1.0
-git push origin v0.1.0
-```
-
-## Checks
-
-| Rule ID | Description | Help |
-| --- | --- | --- |
-| `missing-skill-md` | Skill directories must contain `SKILL.md` | Add a `SKILL.md` file to the skill directory. |
-| `read-error` | `SKILL.md` must be readable | Check the file permissions and make sure `SKILL.md` can be read. |
-| `invalid-frontmatter` | `SKILL.md` must start with valid YAML frontmatter closed by `---` | Start `SKILL.md` with a YAML mapping delimited by opening and closing `---` lines. |
-| `unknown-field` | Only `name`, `description`, `license`, `allowed-tools`, `metadata`, and `compatibility` are allowed | Remove unsupported fields or move custom data under `metadata`. |
-| `missing-name` | `name` is required | Add a lowercase kebab-case `name` field to the frontmatter. |
-| `invalid-name` | `name` must be 1-64 chars, lowercase `[a-z0-9-]`, with no leading, trailing, or consecutive hyphens | Use 1-64 lowercase letters, numbers, or single hyphens, with no leading or trailing hyphen. |
-| `name-directory-mismatch` | `name` must match the parent directory name | Rename the skill directory or update the `name` field so they match exactly. |
-| `missing-description` | `description` is required | Add a `description` field that explains when the skill should be used. |
-| `invalid-description` | `description` must be a string and 1-1024 characters | Use a non-empty string description no longer than 1024 characters. |
-| `invalid-compatibility` | `compatibility`, when present, must be a string and 1-500 characters | Use a non-empty compatibility string no longer than 500 characters, or remove the field. |
-| `invalid-metadata` | `metadata` should be a mapping of string keys to string values | Use string keys and string values for metadata entries. |
-| `body-line-count` | `SKILL.md` body should stay under 500 lines | Move detailed material into referenced files and keep `SKILL.md` focused. |
-| `body-token-estimate` | `SKILL.md` body should stay under about 5000 whitespace-delimited tokens | Shorten `SKILL.md` or move long reference material into separate files. |
-| `reference-depth` | Relative file references should be at most one directory level deep | Keep referenced files in the skill directory or one nested directory. |
-| `missing-reference` | Relative file references in the body should exist on disk | Create the referenced file or update the link target. |
+| Rule ID | Description |
+| --- | --- |
+| `missing-skill-md` | Skill directories must contain `SKILL.md` |
+| `read-error` | `SKILL.md` must be readable |
+| `invalid-frontmatter` | `SKILL.md` must start with valid YAML frontmatter closed by `---` |
+| `unknown-field` | Only `name`, `description`, `license`, `allowed-tools`, `metadata`, and `compatibility` are allowed |
+| `missing-name` | `name` is required |
+| `invalid-name` | `name` must be 1-64 chars, lowercase `[a-z0-9-]`, with no leading, trailing, or consecutive hyphens |
+| `name-directory-mismatch` | `name` must match the parent directory name |
+| `missing-description` | `description` is required |
+| `invalid-description` | `description` must be a string and 1-1024 characters |
+| `invalid-compatibility` | `compatibility`, when present, must be a string and 1-500 characters |
+| `invalid-metadata` | `metadata` should be a mapping of string keys to string values |
+| `body-line-count` | `SKILL.md` body should stay under 500 lines |
+| `body-token-estimate` | `SKILL.md` body should stay under about 5000 whitespace-delimited tokens |
+| `reference-depth` | Relative file references should be at most one directory level deep |
+| `missing-reference` | Relative file references in the body should exist on disk |

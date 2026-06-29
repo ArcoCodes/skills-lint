@@ -21,3 +21,12 @@
 - `cargo test` runs the Rust test suite.
 - `cargo fmt` formats Rust source files.
 - `cargo clippy --all-targets -- -D warnings` runs lint checks and treats warnings as errors.
+
+## Release
+
+Release artifacts are built by `dist` when a version tag is pushed:
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
