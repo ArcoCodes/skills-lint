@@ -17,3 +17,9 @@ targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-da
 install-path = "CARGO_HOME"
 # Whether to install an updater program
 install-updater = false
+
+[dist.github-custom-runners]
+global = "ubuntu-26.04"
+aarch64-unknown-linux-gnu = "ubuntu-26.04-arm"
+x86_64-unknown-linux-gnu = "ubuntu-26.04"
+x86_64-unknown-linux-musl = "ubuntu-26.04"
