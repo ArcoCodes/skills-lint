@@ -1,10 +1,181 @@
 use regex::Regex;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_yaml::{Mapping, Value};
 use std::collections::{BTreeSet, HashSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use walkdir::{DirEntry, WalkDir};
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
+pub struct LintConfig {
+    pub ignore: Vec<String>,
+    pub only: Vec<String>,
+    pub ignore_errors: Vec<String>,
+    pub only_errors: Vec<String>,
+    pub ignore_warnings: Vec<String>,
+    pub only_warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LintOptions {
+    pub ignore: BTreeSet<String>,
+    pub only: BTreeSet<String>,
+    pub ignore_errors: BTreeSet<String>,
+    pub only_errors: BTreeSet<String>,
+    pub ignore_warnings: BTreeSet<String>,
+    pub only_warnings: BTreeSet<String>,
+}
+
+impl LintOptions {
+    pub fn from_config(config: LintConfig) -> Self {
+        Self {
+            ignore: config.ignore.into_iter().collect(),
+            only: config.only.into_iter().collect(),
+            ignore_errors: config.ignore_errors.into_iter().collect(),
+            only_errors: config.only_errors.into_iter().collect(),
+            ignore_warnings: config.ignore_warnings.into_iter().collect(),
+            only_warnings: config.only_warnings.into_iter().collect(),
+        }
+    }
+
+    pub fn merge(&mut self, other: Self) {
+        self.ignore.extend(other.ignore);
+        self.only.extend(other.only);
+        self.ignore_errors.extend(other.ignore_errors);
+        self.only_errors.extend(other.only_errors);
+        self.ignore_warnings.extend(other.ignore_warnings);
+        self.only_warnings.extend(other.only_warnings);
+    }
+
+    pub fn validate(&self) -> Result<(), Vec<String>> {
+        let valid = valid_rule_ids();
+        let mut unknown = BTreeSet::new();
+
+        for rule_id in self
+            .ignore
+            .iter()
+            .chain(&self.only)
+            .chain(&self.ignore_errors)
+            .chain(&self.only_errors)
+            .chain(&self.ignore_warnings)
+            .chain(&self.only_warnings)
+        {
+            if !valid.contains(rule_id.as_str()) {
+                unknown.insert(rule_id.clone());
+            }
+        }
+
+        if unknown.is_empty() {
+            Ok(())
+        } else {
+            Err(unknown.into_iter().collect())
+        }
+    }
+
+    fn includes(&self, diagnostic: &Diagnostic) -> bool {
+        let rule_id = diagnostic.rule_id;
+        let severity_only = match diagnostic.severity {
+            Severity::Error => &self.only_errors,
+            Severity::Warning => &self.only_warnings,
+        };
+        let severity_ignore = match diagnostic.severity {
+            Severity::Error => &self.ignore_errors,
+            Severity::Warning => &self.ignore_warnings,
+        };
+
+        let has_only = !self.only.is_empty() || !severity_only.is_empty();
+        let selected = self.only.contains(rule_id) || severity_only.contains(rule_id);
+        let ignored = self.ignore.contains(rule_id) || severity_ignore.contains(rule_id);
+
+        (!has_only || selected) && !ignored
+    }
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq, Clone, Copy)]
+pub struct Rule {
+    pub id: &'static str,
+    pub severity: Severity,
+    pub summary: &'static str,
+}
+
+pub const RULES: &[Rule] = &[
+    Rule {
+        id: "missing-skill-md",
+        severity: Severity::Error,
+        summary: "Skill directories must contain SKILL.md",
+    },
+    Rule {
+        id: "read-error",
+        severity: Severity::Error,
+        summary: "SKILL.md must be readable",
+    },
+    Rule {
+        id: "invalid-frontmatter",
+        severity: Severity::Error,
+        summary: "SKILL.md must start with valid YAML frontmatter closed by ---",
+    },
+    Rule {
+        id: "unknown-field",
+        severity: Severity::Error,
+        summary: "Frontmatter can only use supported fields",
+    },
+    Rule {
+        id: "missing-name",
+        severity: Severity::Error,
+        summary: "`name` is required",
+    },
+    Rule {
+        id: "invalid-name",
+        severity: Severity::Error,
+        summary: "`name` must be lowercase kebab-case and 1-64 characters",
+    },
+    Rule {
+        id: "name-directory-mismatch",
+        severity: Severity::Error,
+        summary: "`name` must match the parent directory name",
+    },
+    Rule {
+        id: "missing-description",
+        severity: Severity::Error,
+        summary: "`description` is required",
+    },
+    Rule {
+        id: "invalid-description",
+        severity: Severity::Error,
+        summary: "`description` must be a string and 1-1024 characters",
+    },
+    Rule {
+        id: "invalid-compatibility",
+        severity: Severity::Error,
+        summary: "`compatibility` must be a string and 1-500 characters",
+    },
+    Rule {
+        id: "invalid-metadata",
+        severity: Severity::Warning,
+        summary: "`metadata` should be a mapping of string keys to string values",
+    },
+    Rule {
+        id: "body-line-count",
+        severity: Severity::Warning,
+        summary: "SKILL.md body should stay under 500 lines",
+    },
+    Rule {
+        id: "body-token-estimate",
+        severity: Severity::Warning,
+        summary: "SKILL.md body should stay under about 5000 tokens",
+    },
+    Rule {
+        id: "reference-depth",
+        severity: Severity::Warning,
+        summary: "Relative file references should be at most one directory level deep",
+    },
+    Rule {
+        id: "missing-reference",
+        severity: Severity::Warning,
+        summary: "Relative file references in the body should exist on disk",
+    },
+];
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
 pub struct LintResult {
@@ -24,7 +195,7 @@ pub struct SkillResult {
 #[derive(Debug, Serialize, PartialEq, Eq)]
 pub struct Diagnostic {
     pub severity: Severity,
-    pub code: &'static str,
+    pub rule_id: &'static str,
     pub message: String,
 }
 
@@ -36,10 +207,14 @@ pub enum Severity {
 }
 
 pub fn lint_skills(root: impl AsRef<Path>) -> LintResult {
+    lint_skills_with_options(root, &LintOptions::default())
+}
+
+pub fn lint_skills_with_options(root: impl AsRef<Path>, options: &LintOptions) -> LintResult {
     let root = root.as_ref().to_path_buf();
     let mut skills = discover_skill_dirs(&root)
         .into_iter()
-        .map(lint_skill_dir)
+        .map(|path| lint_skill_dir_with_options(path, options))
         .collect::<Vec<_>>();
 
     skills.sort_by(|left, right| left.path.cmp(&right.path));
@@ -64,17 +239,23 @@ pub fn lint_skills(root: impl AsRef<Path>) -> LintResult {
 }
 
 pub fn lint_skill_dir(path: impl AsRef<Path>) -> SkillResult {
+    lint_skill_dir_with_options(path, &LintOptions::default())
+}
+
+pub fn lint_skill_dir_with_options(path: impl AsRef<Path>, options: &LintOptions) -> SkillResult {
     let path = path.as_ref().to_path_buf();
     let skill_file = path.join("SKILL.md");
 
     if !skill_file.is_file() {
+        let mut diagnostics = vec![error(
+            "missing-skill-md",
+            "Skill directory must contain a SKILL.md file",
+        )];
+        diagnostics.retain(|diagnostic| options.includes(diagnostic));
         return SkillResult {
             path,
             skill_file: None,
-            diagnostics: vec![error(
-                "missing-skill-md",
-                "Skill directory must contain a SKILL.md file",
-            )],
+            diagnostics,
         };
     }
 
@@ -82,13 +263,15 @@ pub fn lint_skill_dir(path: impl AsRef<Path>) -> SkillResult {
     let source = match fs::read_to_string(&skill_file) {
         Ok(source) => source,
         Err(read_error) => {
+            let mut diagnostics = vec![error(
+                "read-error",
+                format!("Could not read SKILL.md: {read_error}"),
+            )];
+            diagnostics.retain(|diagnostic| options.includes(diagnostic));
             return SkillResult {
                 path,
                 skill_file: Some(skill_file),
-                diagnostics: vec![error(
-                    "read-error",
-                    format!("Could not read SKILL.md: {read_error}"),
-                )],
+                diagnostics,
             };
         }
     };
@@ -102,11 +285,17 @@ pub fn lint_skill_dir(path: impl AsRef<Path>) -> SkillResult {
         Err(message) => diagnostics.push(error("invalid-frontmatter", message)),
     }
 
+    diagnostics.retain(|diagnostic| options.includes(diagnostic));
+
     SkillResult {
         path,
         skill_file: Some(skill_file),
         diagnostics,
     }
+}
+
+pub fn valid_rule_ids() -> BTreeSet<&'static str> {
+    RULES.iter().map(|rule| rule.id).collect()
 }
 
 fn discover_skill_dirs(root: &Path) -> Vec<PathBuf> {
@@ -451,7 +640,7 @@ fn has_key(mapping: &Mapping, key: &str) -> bool {
 fn error(code: &'static str, message: impl Into<String>) -> Diagnostic {
     Diagnostic {
         severity: Severity::Error,
-        code,
+        rule_id: code,
         message: message.into(),
     }
 }
@@ -459,7 +648,7 @@ fn error(code: &'static str, message: impl Into<String>) -> Diagnostic {
 fn warning(code: &'static str, message: impl Into<String>) -> Diagnostic {
     Diagnostic {
         severity: Severity::Warning,
-        code,
+        rule_id: code,
         message: message.into(),
     }
 }
@@ -517,7 +706,7 @@ mod tests {
         let result = lint_skills(temp.path.join("skills"));
 
         assert_eq!(result.error_count, 1);
-        assert_eq!(result.skills[0].diagnostics[0].code, "missing-skill-md");
+        assert_eq!(result.skills[0].diagnostics[0].rule_id, "missing-skill-md");
     }
 
     #[test]
@@ -538,11 +727,62 @@ mod tests {
         assert!(codes.contains(&"missing-reference"));
     }
 
+    #[test]
+    fn filters_with_general_ignore_and_only_rules() {
+        let temp = TestDir::new();
+        let skill = temp.path.join("filtered");
+        fs::create_dir_all(&skill).unwrap();
+        fs::write(
+            skill.join("SKILL.md"),
+            "---\nname: Filtered\ndescription: \"\"\nextra: true\n---\n",
+        )
+        .unwrap();
+
+        let mut options = LintOptions::default();
+        options.only.insert("invalid-name".to_string());
+        options.ignore.insert("invalid-name".to_string());
+
+        let result = lint_skill_dir_with_options(&skill, &options);
+
+        assert!(result.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn filters_with_severity_specific_rules() {
+        let temp = TestDir::new();
+        let skill = temp.path.join("reference-test");
+        fs::create_dir_all(&skill).unwrap();
+        fs::write(
+            skill.join("SKILL.md"),
+            "---\nname: Wrong\ndescription: Tests references\n---\nRead [deep](a/b/c.md).\n",
+        )
+        .unwrap();
+
+        let mut options = LintOptions::default();
+        options.only_errors.insert("invalid-name".to_string());
+        options.only_warnings.insert("reference-depth".to_string());
+
+        let result = lint_skill_dir_with_options(&skill, &options);
+        let codes = codes(&result);
+
+        assert_eq!(codes.len(), 2);
+        assert!(codes.contains(&"invalid-name"));
+        assert!(codes.contains(&"reference-depth"));
+    }
+
+    #[test]
+    fn validates_unknown_rule_ids() {
+        let mut options = LintOptions::default();
+        options.ignore.insert("not-a-rule".to_string());
+
+        assert_eq!(options.validate(), Err(vec!["not-a-rule".to_string()]));
+    }
+
     fn codes(result: &SkillResult) -> HashSet<&'static str> {
         result
             .diagnostics
             .iter()
-            .map(|diagnostic| diagnostic.code)
+            .map(|diagnostic| diagnostic.rule_id)
             .collect()
     }
 
