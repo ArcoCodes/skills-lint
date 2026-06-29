@@ -64,6 +64,7 @@ pub struct Rule {
     pub id: &'static str,
     pub severity: Severity,
     pub summary: &'static str,
+    pub help: &'static str,
 }
 
 pub const RULES: &[Rule] = &[
@@ -71,76 +72,91 @@ pub const RULES: &[Rule] = &[
         id: "missing-skill-md",
         severity: Severity::Error,
         summary: "Skill directories must contain SKILL.md",
+        help: "Add a SKILL.md file to the skill directory.",
     },
     Rule {
         id: "read-error",
         severity: Severity::Error,
         summary: "SKILL.md must be readable",
+        help: "Check the file permissions and make sure SKILL.md can be read.",
     },
     Rule {
         id: "invalid-frontmatter",
         severity: Severity::Error,
         summary: "SKILL.md must start with valid YAML frontmatter closed by ---",
+        help: "Start SKILL.md with a YAML mapping delimited by opening and closing --- lines.",
     },
     Rule {
         id: "unknown-field",
         severity: Severity::Error,
         summary: "Frontmatter can only use supported fields",
+        help: "Remove unsupported fields or move custom data under metadata.",
     },
     Rule {
         id: "missing-name",
         severity: Severity::Error,
         summary: "`name` is required",
+        help: "Add a lowercase kebab-case name field to the frontmatter.",
     },
     Rule {
         id: "invalid-name",
         severity: Severity::Error,
         summary: "`name` must be lowercase kebab-case and 1-64 characters",
+        help: "Use 1-64 lowercase letters, numbers, or single hyphens, with no leading or trailing hyphen.",
     },
     Rule {
         id: "name-directory-mismatch",
         severity: Severity::Error,
         summary: "`name` must match the parent directory name",
+        help: "Rename the skill directory or update the name field so they match exactly.",
     },
     Rule {
         id: "missing-description",
         severity: Severity::Error,
         summary: "`description` is required",
+        help: "Add a description field that explains when the skill should be used.",
     },
     Rule {
         id: "invalid-description",
         severity: Severity::Error,
         summary: "`description` must be a string and 1-1024 characters",
+        help: "Use a non-empty string description no longer than 1024 characters.",
     },
     Rule {
         id: "invalid-compatibility",
         severity: Severity::Error,
         summary: "`compatibility` must be a string and 1-500 characters",
+        help: "Use a non-empty compatibility string no longer than 500 characters, or remove the field.",
     },
     Rule {
         id: "invalid-metadata",
         severity: Severity::Error,
         summary: "`metadata` should be a mapping of string keys to string values",
+        help: "Use string keys and string values for metadata entries.",
     },
     Rule {
         id: "body-line-count",
         severity: Severity::Error,
         summary: "SKILL.md body should stay under 500 lines",
+        help: "Move detailed material into referenced files and keep SKILL.md focused.",
     },
     Rule {
         id: "body-token-estimate",
         severity: Severity::Error,
         summary: "SKILL.md body should stay under about 5000 tokens",
+        help: "Shorten SKILL.md or move long reference material into separate files.",
     },
     Rule {
         id: "reference-depth",
         severity: Severity::Error,
         summary: "Relative file references should be at most one directory level deep",
+        help: "Keep referenced files in the skill directory or one nested directory.",
     },
     Rule {
         id: "missing-reference",
         severity: Severity::Error,
         summary: "Relative file references in the body should exist on disk",
+        help: "Create the referenced file or update the link target.",
     },
 ];
 
@@ -163,6 +179,7 @@ pub struct Diagnostic {
     pub severity: Severity,
     pub rule_id: &'static str,
     pub message: String,
+    pub help: &'static str,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq, Clone, Copy)]
@@ -600,7 +617,16 @@ fn error(code: &'static str, message: impl Into<String>) -> Diagnostic {
         severity: Severity::Error,
         rule_id: code,
         message: message.into(),
+        help: rule_help(code),
     }
+}
+
+fn rule_help(rule_id: &str) -> &'static str {
+    RULES
+        .iter()
+        .find(|rule| rule.id == rule_id)
+        .map(|rule| rule.help)
+        .unwrap_or("Fix the reported issue and run slint again.")
 }
 
 #[cfg(test)]

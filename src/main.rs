@@ -96,11 +96,13 @@ fn print_diagnostic(skill: &SkillResult, diagnostic: &Diagnostic, color: Color) 
 
     println!("{}({}): {}", severity, rule_id, diagnostic.message);
     println!(" {} {}", color.blue("-->"), location.display());
+    println!("{} {}", color.blue("help:"), diagnostic.help);
 }
 
 fn print_rules() {
     for rule in RULES.iter().filter(|rule| rule.severity == Severity::Error) {
         println!("  {}: {}", rule.id, rule.summary);
+        println!("    help: {}", rule.help);
     }
 }
 
