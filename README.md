@@ -34,6 +34,63 @@ ignore = ["body-line-count"]
 
 Command-line filters are merged with configuration file filters. Unknown rule IDs are reported before linting starts.
 
+## CI
+
+Use the GitHub Action to install a prebuilt release binary and fail the job when `slint` finds errors:
+
+```yaml
+name: Skills Lint
+
+on: [push, pull_request]
+
+jobs:
+  skills-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: ArcoCodes/skills-lint@v0.1.0
+        with:
+          path: .
+```
+
+With filters:
+
+```yaml
+- uses: ArcoCodes/skills-lint@v0.1.0
+  with:
+    path: ./skills
+    ignore: body-line-count,body-token-estimate
+```
+
+Pin a specific released binary:
+
+```yaml
+- uses: ArcoCodes/skills-lint@v0.1.0
+  with:
+    version: v0.1.0
+```
+
+## Install
+
+Linux and macOS:
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/ArcoCodes/skills-lint/releases/latest/download/skills-lint-installer.sh | sh
+```
+
+Windows PowerShell:
+
+```powershell
+powershell -c "irm https://github.com/ArcoCodes/skills-lint/releases/latest/download/skills-lint-installer.ps1 | iex"
+```
+
+Release artifacts are built by `dist` when a version tag is pushed:
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
 ## Checks
 
 | Rule ID | Description | Help |

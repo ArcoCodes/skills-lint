@@ -632,7 +632,10 @@ fn rule_help(rule_id: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    static TEST_DIR_ID: AtomicU64 = AtomicU64::new(0);
 
     #[test]
     fn valid_skill_has_no_diagnostics() {
@@ -771,7 +774,8 @@ mod tests {
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_nanos();
-            let path = std::env::temp_dir().join(format!("skills-lint-test-{id}"));
+            let sequence = TEST_DIR_ID.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!("skills-lint-test-{id}-{sequence}"));
             fs::create_dir_all(&path).unwrap();
             Self { path }
         }

@@ -1,0 +1,78 @@
+name: skills-lint
+description: Lint Agent Skills without installing Rust
+
+inputs:
+  path:
+    description: Path to lint
+    required: false
+    default: .
+  config:
+    description: Optional slint config file path
+    required: false
+    default: ""
+  select:
+    description: Comma-separated rule IDs to run
+    required: false
+    default: ""
+  ignore:
+    description: Comma-separated rule IDs to ignore
+    required: false
+    default: ""
+  version:
+    description: Release tag to install, or latest
+    required: false
+    default: latest
+
+runs:
+  using: composite
+  steps:
+    - name: Install slint
+      if: runner.os != 'Windows'
+      shell: bash
+      env:
+        SLINT_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        if [ "$SLINT_VERSION" = "latest" ]; then
+          url="https://github.com/ArcoCodes/skills-lint/releases/latest/download/skills-lint-installer.sh"
+        else
+          url="https://github.com/ArcoCodes/skills-lint/releases/download/$SLINT_VERSION/skills-lint-installer.sh"
+        fi
+        curl --proto '=https' --tlsv1.2 -LsSf "$url" | sh
+        echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+    - name: Install slint
+      if: runner.os == 'Windows'
+      shell: pwsh
+      env:
+        SLINT_VERSION: ${{ inputs.version }}
+      run: |
+        if ($env:SLINT_VERSION -eq "latest") {
+          $url = "https://github.com/ArcoCodes/skills-lint/releases/latest/download/skills-lint-installer.ps1"
+        } else {
+          $url = "https://github.com/ArcoCodes/skills-lint/releases/download/$env:SLINT_VERSION/skills-lint-installer.ps1"
+        }
+        irm $url | iex
+        "$env:USERPROFILE\.cargo\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+    - name: Run slint
+      shell: bash
+      env:
+        SLINT_PATH: ${{ inputs.path }}
+        SLINT_CONFIG: ${{ inputs.config }}
+        SLINT_SELECT: ${{ inputs.select }}
+        SLINT_IGNORE: ${{ inputs.ignore }}
+      run: |
+        set -euo pipefail
+        args=()
+        if [ -n "$SLINT_CONFIG" ]; then
+          args+=(--config "$SLINT_CONFIG")
+        fi
+        if [ -n "$SLINT_SELECT" ]; then
+          args+=(--select "$SLINT_SELECT")
+        fi
+        if [ -n "$SLINT_IGNORE" ]; then
+          args+=(--ignore "$SLINT_IGNORE")
+        fi
+        args+=("$SLINT_PATH")
+        slint "${args[@]}"
